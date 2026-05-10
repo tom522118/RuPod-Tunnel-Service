@@ -1,6 +1,7 @@
 # Git Ignore for Home Directory
 
 # Sensitive Data
+.env
 .ssh/
 .cloudflared/
 .gemini/
