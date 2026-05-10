@@ -2,6 +2,7 @@
 
 # Sensitive Data
 .env
+LOCAL_README.md
 .ssh/
 .cloudflared/
 .gemini/
