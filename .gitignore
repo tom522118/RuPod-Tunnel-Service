@@ -1,0 +1,26 @@
+# Git Ignore for Home Directory
+
+# Sensitive Data
+.ssh/
+.cloudflared/
+.gemini/
+.gnupg/
+.local/share/nano/
+
+# Logs and History
+.bash_history
+.lesshst
+.viminfo
+.sudo_as_admin_successful
+
+# Cache and Temp Files
+.cache/
+.npm/
+*.tgz
+*.deb
+*.log
+
+# Sub-projects or large directories
+.nvm/
+go_colab/etc_cloudflared.tgz
+go_colab/home_cloudflared.tgz
