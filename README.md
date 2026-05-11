@@ -20,9 +20,10 @@ A collection of automated scripts for managing Cloudflare Tunnels, Docker enviro
 
 | Script | Description |
 | :--- | :--- |
-| `cf-auto.sh` | The main tool for creating/deleting Cloudflare tunnels with DNS integration. |
+| `cf-auto.sh` | The main tool for creating/deleting Cloudflare tunnels with DNS integration. Now supports automatic token loading and improved service detection. |
 | `cf-tmux-all.sh` | Scans `/etc/cloudflared/*.yml` and ensures all tunnels are running in a `tmux` session. |
-| `auto_clean_empty_tunnels.sh` | Automatically detects and removes tunnels without active connections and their associated DNS records. |
+| `0_clean_empty_tunnels.sh` | Automatically detects and removes tunnels without active connections (unhealthy) and their associated DNS records. |
+| `1_delete_CNAME-4-tunnels-gone.sh` | Advanced cleanup tool that scans Cloudflare DNS records and removes CNAMEs pointing to non-existent tunnels. |
 | `arm64_docker_install.sh` | Installs Docker and Docker Compose on Ubuntu ARM64. |
 | `docker_nginx_on.sh` | Quickly launches an Nginx container. |
 | `set_ps1.sh` | Customizes the Bash prompt (PS1) for better visibility. |
@@ -34,6 +35,7 @@ A collection of automated scripts for managing Cloudflare Tunnels, Docker enviro
 - **Cloudflare Account**: You need a Cloudflare account and a registered domain.
 - **Cloudflared CLI**: Install `cloudflared` on your system.
 - **Authentication**: Run `cloudflared tunnel login` to authenticate before using the scripts.
+- **API Token**: For DNS management, place your Cloudflare API token in `/etc/cloudflared/.cf_token` (Format: `CF_TOKEN="your_token"`) or set it as an environment variable.
 
 ### Setup
 
@@ -46,11 +48,6 @@ A collection of automated scripts for managing Cloudflare Tunnels, Docker enviro
 2. Make scripts executable:
    ```bash
    chmod +x *.sh
-   ```
-
-3. (Optional) Set up your `CF_TOKEN` in `.bashrc` for automated DNS deletion:
-   ```bash
-   export CF_TOKEN="your_cloudflare_api_token"
    ```
 
 ## 📖 Usage Examples
@@ -77,9 +74,14 @@ sudo ./cf-tmux-all.sh
 ```
 To view the running tunnels, use: `tmux a -t cf-tunnels`.
 
-### 5. Cleanup Dead Tunnels
+### 5. Cleanup Dead Tunnels (Unhealthy)
 ```bash
-./auto_clean_empty_tunnels.sh
+./0_clean_empty_tunnels.sh
+```
+
+### 6. Cleanup Stale DNS Records (Missing Tunnels)
+```bash
+./1_delete_CNAME-4-tunnels-gone.sh
 ```
 
 ## 🛡 Security Note
