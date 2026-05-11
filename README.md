@@ -40,9 +40,24 @@ A collection of automated scripts for managing Cloudflare Tunnels, Docker enviro
 ### Setup
 
 1. Clone the repository:
+
+   **Via HTTPS (Recommended):**
+   ```bash
+   git clone https://github.com/tom522118/RuPod-Tunnel-Service.git
+   cd RuPod-Tunnel-Service
+   ```
+
+   **Via SSH:**
    ```bash
    git clone git@github.com:tom522118/RuPod-Tunnel-Service.git
    cd RuPod-Tunnel-Service
+   ```
+
+   **Direct Download (ZIP):**
+   ```bash
+   wget https://github.com/tom522118/RuPod-Tunnel-Service/archive/refs/heads/master.zip
+   unzip master.zip
+   cd RuPod-Tunnel-Service-master
    ```
 
 2. Make scripts executable:
