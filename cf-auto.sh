@@ -15,53 +15,65 @@ done
 # --- [建議 6] 刪除模式 (Cleanup Mode) ---
 if [ "$1" == "delete" ]; then
     if [ -z "$2" ]; then
-        echo "使用方式: $0 delete <hostname>"
+        echo "使用方式: sudo [CF_TOKEN=...] $0 delete <完整主機名>"
         exit 1
     fi
     FULL_HOSTNAME=$2
     PREFIX=$(echo $FULL_HOSTNAME | cut -d'.' -f1)
-    # 嘗試自動解析 Zone Name (例如: web01.example.com -> example.com)
-    ZONE_NAME=$(echo $FULL_HOSTNAME | cut -d'.' -f2-)
     CONFIG_DIR="/etc/cloudflared"
 
     echo "--- [開始清理] 正在刪除隧道與 DNS 紀錄: $FULL_HOSTNAME ---"
 
-    # 1. 透過 API 刪除 DNS 紀錄 (因為 cloudflared CLI 不支援刪除 DNS 路由)
+    # 自動從檔案讀取 CF_TOKEN (如果環境變數沒設定)
+    TOKEN_FILE="/etc/cloudflared/.cf_token"
+    if [ -z "$CF_TOKEN" ] && [ -f "$TOKEN_FILE" ]; then
+        source "$TOKEN_FILE"
+        export CF_TOKEN
+        echo "   [資訊] 已從 $TOKEN_FILE 自動載入 CF_TOKEN。"
+    fi
+
+    # 1. 透過 API 刪除 DNS 紀錄
     if [ -n "$CF_TOKEN" ]; then
         echo "1. 正在透過 API 搜尋並刪除 DNS 紀錄 ($FULL_HOSTNAME)..."
         
-        # 取得 Zone ID
-        ZONE_ID=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=$ZONE_NAME"             -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" | jq -r '.result[0].id')
+        # 取得所有 Zones 並找出符合 FULL_HOSTNAME 結尾的 Zone ID
+        ZONE_ID=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones" \
+            -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" | \
+            jq -r --arg host "$FULL_HOSTNAME" '.result[] | .name as $n | select($host | endswith($n)) | .id' | head -n 1)
         
         if [ "$ZONE_ID" != "null" ] && [ -n "$ZONE_ID" ]; then
             # 取得 Record ID
-            RECORD_ID=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?name=$FULL_HOSTNAME"                 -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" | jq -r '.result[0].id')
+            RECORD_ID=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?name=$FULL_HOSTNAME" \
+                -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" | jq -r '.result[0].id')
             
             if [ "$RECORD_ID" != "null" ] && [ -n "$RECORD_ID" ]; then
-                DELETE_RES=$(curl -s -X DELETE "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$RECORD_ID"                     -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" | jq -r '.success')
+                DELETE_RES=$(curl -s -X DELETE "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$RECORD_ID" \
+                    -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" | jq -r '.success')
                 if [ "$DELETE_RES" == "true" ]; then
                     echo "   [成功] DNS 紀錄已從 Cloudflare 刪除。"
                 else
-                    echo "   [失敗] 無法刪除 DNS 紀錄。"
+                    echo "   [失敗] 無法刪除 DNS 紀錄，請檢查 Token 權限 (需有 DNS:Edit)。"
                 fi
             else
-                echo "   [跳過] 找不到該主機名的 DNS 紀錄。"
+                echo "   [跳過] 找不到該主機名的 DNS 紀錄 (Zone ID: $ZONE_ID)。"
             fi
         else
-            echo "   [失敗] 找不到 Zone: $ZONE_NAME，請檢查 CF_TOKEN 權限。"
+            echo "   [失敗] 找不到符合 $FULL_HOSTNAME 的 Zone，請確認網域已加入 Cloudflare 且 CF_TOKEN 正確。"
         fi
     else
-        echo "1. [跳過] 未偵測到 CF_TOKEN，請將其加入環境變數以自動刪除 DNS 紀錄。"
+        echo "1. [跳過] 未偵測到 CF_TOKEN，將不會刪除 Cloudflare 上的 DNS 紀錄。"
+        echo "   提示: 請確保 /etc/cloudflared/.cf_token 存在且格式正確。"
     fi
 
     # 2. 找出 Tunnel ID 並刪除
-    TUNNEL_ID=$(cloudflared tunnel list | grep "$PREFIX-tunnel" | awk '{print $1}' | head -n 1)
+    # 使用 grep -w 確保精確匹配隧道名稱
+    TUNNEL_ID=$(cloudflared tunnel list | grep -w "$PREFIX-tunnel" | awk '{print $1}' | head -n 1)
 
     if [ -n "$TUNNEL_ID" ]; then
-        echo "2. 正在刪除雲端隧道實體..."
-        cloudflared tunnel delete -f "$TUNNEL_ID" 2>/dev/null
+        echo "2. 正在刪除雲端隧道實體 ($TUNNEL_ID)..."
+        cloudflared tunnel delete -f "$TUNNEL_ID"
     else
-        echo "2. [跳過] 找不到雲端隧道 ID。"
+        echo "2. [跳過] 找不到雲端隧道 ID (名稱: $PREFIX-tunnel)。"
     fi
 
     # 3. 清理本地檔案
@@ -103,7 +115,6 @@ fi
 
 FULL_HOSTNAME=$1
 PREFIX=$(echo $FULL_HOSTNAME | cut -d'.' -f1)
-TYPE=$(echo $PREFIX | sed 's/[0-9]*//g')
 CONFIG_DIR="/etc/cloudflared"
 mkdir -p $CONFIG_DIR
 
@@ -115,18 +126,18 @@ if [ -z "$ORIGIN_CERT" ]; then
     exit 1
 fi
 
-# 1. 判斷服務類型 (支援自訂 Port)
+# 1. 判斷服務類型 (支援前綴匹配與自訂 Port)
 CUSTOM_PORT=$2
-case "$TYPE" in
-    "web")    SERVICE="http://localhost:${CUSTOM_PORT:-80}" ;;
-    "ssh")    SERVICE="ssh://localhost:22" ;;
-    "vnc")    SERVICE="tcp://localhost:5900" ;;
-    "ollama") SERVICE="http://localhost:${CUSTOM_PORT:-11434}" ;;
-    "rdp")    SERVICE="rdp://localhost:3389" ;;
-    *)        SERVICE="http://localhost:${CUSTOM_PORT:-80}" ;;
+case "$PREFIX" in
+    web*)    SERVICE="http://localhost:${CUSTOM_PORT:-80}" ;;
+    ssh*)    SERVICE="ssh://localhost:${CUSTOM_PORT:-22}" ;;
+    vnc*)    SERVICE="tcp://localhost:${CUSTOM_PORT:-5900}" ;;
+    ollama*) SERVICE="http://localhost:${CUSTOM_PORT:-11434}" ;;
+    rdp*)    SERVICE="rdp://localhost:${CUSTOM_PORT:-3389}" ;;
+    *)       SERVICE="http://localhost:${CUSTOM_PORT:-80}" ;;
 esac
 
-echo "--- 偵測到類型: $TYPE, 將導向: $SERVICE ---"
+echo "--- 偵測到服務類型，將導向: $SERVICE ---"
 
 # 2. 建立隧道 (支援相容已存在的隧道名稱)
 echo "正在準備隧道: $PREFIX-tunnel ..."
