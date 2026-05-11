@@ -27,7 +27,7 @@ for config in "$CONFIG_DIR"/*.yml; do
         echo "正在啟動隧道: [$name] (使用設定檔: $filename)"
         # 建立新視窗並執行 cloudflared
         # 加上 --protocol http2 可以增加在台灣網路環境下的穩定性，避免「降級」
-        tmux new-window -t $SESSION_NAME -n "$name" "sudo cloudflared tunnel --config $config --protocol http2 run"
+        tmux new-window -t $SESSION_NAME -n "$name" "sudo cloudflared tunnel --config $config run"
     fi
 done
 
